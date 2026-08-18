@@ -16,6 +16,24 @@
 #   https://api.ashbyhq.com/posting-api/job-board/<slug>?includeCompensation=true
 #
 # A dead slug is not fatal: fetch_board prints the HTTP status and returns [],
+# Boards to poll. One entry per company.
+#
+#   ats:   greenhouse | lever | ashby
+#   slug:  the company's board identifier (NOT its domain)
+#   name:  whatever you want to see in the digest
+#
+# The slug is the last path segment of the company's public careers board:
+#   https://boards.greenhouse.io/<slug>        -> ats: greenhouse
+#   https://jobs.lever.co/<slug>               -> ats: lever
+#   https://jobs.ashbyhq.com/<slug>            -> ats: ashby
+#
+# THESE ARE EXAMPLES — verify each one before you trust the output. Companies
+# migrate between ATS vendors and slugs go dead. Check a slug in your browser:
+#   https://boards-api.greenhouse.io/v1/boards/<slug>/jobs?content=true
+#   https://api.lever.co/v0/postings/<slug>?mode=json
+#   https://api.ashbyhq.com/posting-api/job-board/<slug>?includeCompensation=true
+#
+# A dead slug is not fatal: fetch_board prints the HTTP status and returns [],
 # so one bad entry never takes down the run. Watch the per-board job counts on
 # stdout — a board reporting 0 jobs every day is a slug that needs fixing.
 #
@@ -23,16 +41,54 @@
 # noise and makes the prefilter counts impossible to reason about.
 
 companies:
-  - {ats: greenhouse, slug: stripe,      name: Stripe}
-  - {ats: greenhouse, slug: databricks,  name: Databricks}
-  - {ats: greenhouse, slug: cloudflare,  name: Cloudflare}
-  - {ats: greenhouse, slug: figma,       name: Figma}
-  - {ats: greenhouse, slug: dropbox,     name: Dropbox}
-  - {ats: greenhouse, slug: coinbase,    name: Coinbase}
-  - {ats: greenhouse, slug: reddit,      name: Reddit}
-  - {ats: lever,      slug: voleon,      name: Voleon}
-
-  - {ats: ashby,      slug: openai,      name: OpenAI}
-  - {ats: ashby,      slug: ramp,        name: Ramp}
-  - {ats: ashby,      slug: linear,      name: Linear}
-  - {ats: ashby,      slug: vanta,       name: Vanta}
+  - { ats: lever, slug: hevodata, name: Hevo Data }
+  - { ats: lever, slug: meesho, name: Meesho }
+  - { ats: lever, slug: nium, name: Nium }
+  - { ats: lever, slug: paytm, name: Paytm }
+  - { ats: lever, slug: stable-money1, name: Stable Money }
+  - { ats: lever, slug: drivetrain, name: Drivetrain }
+  - { ats: lever, slug: terrahq, name: Terra }
+  - { ats: lever, slug: titan, name: Titan }
+  - { ats: lever, slug: tiket, name: tiket.com }
+  - { ats: lever, slug: findem, name: Findem }
+  - { ats: lever, slug: netomi, name: Netomi }
+  - { ats: lever, slug: neuron7, name: Neuron7 }
+  - { ats: lever, slug: onehouse, name: Onehouse }
+  - { ats: ashby, slug: almabase, name: Almabase }
+  - { ats: ashby, slug: sarvam, name: Sarvam AI }
+  - { ats: ashby, slug: skylo, name: Skylo Technologies }
+  - { ats: ashby, slug: flagright.com, name: Flagright }
+  - { ats: ashby, slug: reo-dev, name: Reo.Dev }
+  - { ats: ashby, slug: kognitos, name: Kognitos }
+  - { ats: ashby, slug: ema, name: Ema }
+  - { ats: ashby, slug: furtherai, name: FurtherAI }
+  - { ats: ashby, slug: scribe, name: Scribe }
+  - { ats: ashby, slug: Fermi AI, name: Fermi AI }
+  - { ats: ashby, slug: cyberhaven, name: Cyberhaven }
+  - { ats: ashby, slug: altimate, name: Altimate AI }
+  - { ats: greenhouse, slug: razorpaysoftwareprivatelimited, name: Razorpay }
+  - { ats: greenhouse, slug: postman, name: Postman }
+  - { ats: greenhouse, slug: hackerrank, name: HackerRank }
+  - { ats: greenhouse, slug: groww, name: Groww }
+  - { ats: greenhouse, slug: phonepe, name: PhonePe }
+  - { ats: greenhouse, slug: gleanwork, name: Glean }
+  - { ats: greenhouse, slug: newrelic, name: New Relic }
+  - { ats: greenhouse, slug: instawork, name: Instawork }
+  - { ats: greenhouse, slug: truveta, name: Truveta }
+  - { ats: greenhouse, slug: towerresearchcapital, name: Tower Research Capital }
+  - { ats: greenhouse, slug: speechify, name: Speechify }
+  - { ats: greenhouse, slug: anaplan, name: Anaplan }
+  - { ats: greenhouse, slug: vonage, name: Vonage }
+  - { ats: greenhouse, slug: dialpad, name: Dialpad }
+  - { ats: greenhouse, slug: gitlab, name: GitLab }
+  - { ats: greenhouse, slug: gravitational, name: Gravitational }
+  - { ats: greenhouse, slug: harness, name: Harness }
+  - { ats: greenhouse, slug: whatfix, name: Whatfix }
+  - { ats: greenhouse, slug: wingify, name: Wingify }
+  - { ats: greenhouse, slug: chargebee, name: Chargebee }
+  - { ats: greenhouse, slug: browserstack, name: BrowserStack }
+  - { ats: greenhouse, slug: freshworks, name: Freshworks }
+  - { ats: greenhouse, slug: cleartax, name: ClearTax }
+  - { ats: greenhouse, slug: sharechat, name: ShareChat }
+  - { ats: greenhouse, slug: shiprocket, name: Shiprocket }
+  - { ats: greenhouse, slug: upstox, name: Upstox }
