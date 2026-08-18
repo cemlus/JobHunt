@@ -103,7 +103,8 @@ def cmd_run(args) -> int:
         if not companies:
             print("companies.yaml has no entries")
             return 1
-        jobs = fetch_all(companies)
+        concurrency = int(cfg.get("concurrency") or (cfg.get("fetch") or {}).get("concurrency") or 10)
+        jobs = fetch_all(companies, max_workers=concurrency)
     scanned = len(jobs)
     if not scanned:
         print("no postings fetched — check the slugs in companies.yaml")

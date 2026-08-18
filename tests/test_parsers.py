@@ -17,7 +17,10 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from jobhunt import mock
-from jobhunt.fetch import parse_ashby, parse_greenhouse, parse_lever, strip_html
+from jobhunt.fetch import (
+    parse_ashby, parse_greenhouse, parse_lever,
+    parse_workable, parse_smartrecruiters, parse_bamboohr, parse_workday, strip_html
+)
 from jobhunt.mock import fetch_all_mock
 from jobhunt.prefilter import prefilter
 
@@ -92,11 +95,52 @@ def test_ashby_reads_compensation_and_html_fallback():
     assert "Causal inference" in ds.description   # descriptionHtml fallback
 
 
+def test_workable_maps_every_field():
+    jobs = parse_workable("cloudscale", "Cloudscale", mock.WORKABLE["cloudscale"])
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j.job_id == "workable:cloudscale:CS-101"
+    assert j.ats == "workable"
+    assert j.company == "Cloudscale"
+    assert j.title == "Staff Infrastructure Engineer"
+    assert "Bengaluru" in j.location and "Remote" in j.location
+    assert "Kubernetes" in j.description
+
+
+def test_smartrecruiters_maps_every_field():
+    jobs = parse_smartrecruiters("datapulse", "DataPulse", mock.SMARTRECRUITERS["datapulse"])
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j.job_id == "smartrecruiters:datapulse:sr-201"
+    assert j.ats == "smartrecruiters"
+    assert j.title == "Frontend Developer, Design Systems"
+    assert "Bangalore" in j.location
+
+
+def test_bamboohr_maps_every_field():
+    jobs = parse_bamboohr("fintechx", "FintechX", mock.BAMBOOHR["fintechx"])
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j.job_id == "bamboohr:fintechx:bb-301"
+    assert j.ats == "bamboohr"
+    assert j.title == "Account Executive"
+
+
+def test_workday_maps_every_field():
+    jobs = parse_workday("globalcorp", "GlobalCorp", mock.WORKDAY["globalcorp"])
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j.job_id == "workday:globalcorp:Engineering-Manager-WD-401"
+    assert j.ats == "workday"
+    assert j.title == "Engineering Manager, Infrastructure"
+
+
+
 def test_job_ids_are_globally_unique_and_namespaced():
     jobs = fetch_all_mock()
     ids = [j.job_id for j in jobs]
     assert len(ids) == len(set(ids))
-    assert all(re.match(r"^(greenhouse|lever|ashby):[^:]+:.+$", i) for i in ids)
+    assert all(re.match(r"^(greenhouse|lever|ashby|workable|smartrecruiters|bamboohr|workday):[^:]+:.+$", i) for i in ids)
 
 
 def test_parsers_take_decoded_json_not_a_response():
@@ -105,6 +149,11 @@ def test_parsers_take_decoded_json_not_a_response():
     assert parse_greenhouse("x", "X", {}) == []
     assert parse_lever("x", "X", []) == []
     assert parse_ashby("x", "X", {}) == []
+    assert parse_workable("x", "X", {}) == []
+    assert parse_smartrecruiters("x", "X", {}) == []
+    assert parse_bamboohr("x", "X", {}) == []
+    assert parse_workday("x", "X", {}) == []
+
 
 
 # -------------------------------------------------------------- prefilter ---
@@ -186,3 +235,27 @@ def test_allow_remote_is_what_lets_an_out_of_region_remote_role_through():
 def test_empty_filters_keep_everything():
     jobs = fetch_all_mock()
     assert len(prefilter(jobs, {})) == len(jobs)
+
+
+def test_fetch_all_concurrency_execution(monkeypatch):
+    """Verify fetch_all correctly uses ThreadPoolExecutor to fetch multiple boards concurrently."""
+    from jobhunt.fetch import fetch_all
+
+    called = []
+    def mock_fetch_board(ats, slug, company=None, session=None):
+        called.append(slug)
+        from jobhunt.fetch import Job
+        return [Job(job_id=f"{ats}:{slug}:1", ats=ats, company=company or slug, title="Dev", location="Remote", url="http://x", description="")]
+
+    monkeypatch.setattr("jobhunt.fetch.fetch_board", mock_fetch_board)
+
+    companies = [
+        {"ats": "greenhouse", "slug": "c1"},
+        {"ats": "lever", "slug": "c2"},
+        {"ats": "ashby", "slug": "c3"},
+        {"ats": "workable", "slug": "c4"},
+    ]
+    results = fetch_all(companies, max_workers=4)
+    assert len(results) == 4
+    assert set(called) == {"c1", "c2", "c3", "c4"}
+

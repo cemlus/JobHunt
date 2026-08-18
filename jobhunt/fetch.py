@@ -4,6 +4,7 @@ from __future__ import annotations
 import html
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict, field
 from typing import Any, Iterable
 
@@ -123,10 +124,123 @@ def parse_ashby(slug: str, company: str, body: Any) -> list[Job]:
     return out
 
 
+def parse_workable(slug: str, company: str, body: Any) -> list[Job]:
+    out = []
+    jobs = (body or {}).get("jobs") or []
+    if isinstance(body, list):
+        jobs = body
+    for j in jobs:
+        loc_obj = j.get("location") or {}
+        city = loc_obj.get("city") or loc_obj.get("region") or ""
+        country = loc_obj.get("country") or ""
+        is_remote = bool(loc_obj.get("telecommuting") or j.get("telecommuting"))
+        parts = [p for p in (city, country) if p]
+        if is_remote and "remote" not in " ".join(parts).lower():
+            parts.append("Remote")
+        loc_str = ", ".join(parts)
+        shortcode = j.get("shortcode") or j.get("code") or str(j.get("id"))
+        out.append(Job(
+            job_id=f"workable:{slug}:{shortcode}",
+            ats="workable",
+            company=company,
+            title=(j.get("title") or "").strip(),
+            location=loc_str.strip(),
+            url=j.get("url") or f"https://apply.workable.com/j/{shortcode}",
+            description=strip_html(j.get("description") or j.get("summary")),
+            posted_at=j.get("published") or j.get("published_on") or j.get("created_at"),
+            salary=j.get("type") or j.get("employment_type"),
+        ))
+    return out
+
+
+def parse_smartrecruiters(slug: str, company: str, body: Any) -> list[Job]:
+    out = []
+    items = (body or {}).get("content") or []
+    if isinstance(body, list):
+        items = body
+    for j in items:
+        loc_obj = j.get("location") or {}
+        city = loc_obj.get("city") or loc_obj.get("region") or ""
+        country = loc_obj.get("country") or ""
+        is_remote = bool(loc_obj.get("remote"))
+        parts = [p for p in (city, country) if p]
+        if is_remote and "remote" not in " ".join(parts).lower():
+            parts.append("Remote")
+        loc_str = ", ".join(parts)
+        jid = str(j.get("id") or "")
+        emp_type = (j.get("typeOfEmployment") or {}).get("label") if isinstance(j.get("typeOfEmployment"), dict) else j.get("typeOfEmployment")
+        out.append(Job(
+            job_id=f"smartrecruiters:{slug}:{jid}",
+            ats="smartrecruiters",
+            company=company,
+            title=(j.get("name") or j.get("title") or "").strip(),
+            location=loc_str.strip(),
+            url=f"https://jobs.smartrecruiters.com/{slug}/{jid}",
+            description=strip_html(j.get("jobAd", {}).get("sections", {}).get("jobDescription", {}).get("text") or j.get("description")),
+            posted_at=j.get("releasedDate") or j.get("createdOn"),
+            salary=emp_type,
+        ))
+    return out
+
+
+def parse_bamboohr(slug: str, company: str, body: Any) -> list[Job]:
+    out = []
+    items = (body or {}).get("result") or (body if isinstance(body, list) else [])
+    for j in items:
+        loc = j.get("location") or {}
+        if isinstance(loc, str):
+            loc_str = loc
+        else:
+            city = loc.get("city") or loc.get("state") or ""
+            country = loc.get("country") or ""
+            parts = [p for p in (city, country) if p]
+            loc_str = ", ".join(parts)
+        if j.get("locationType") == "remote" and "remote" not in loc_str.lower():
+            loc_str = f"{loc_str}, Remote" if loc_str else "Remote"
+        jid = str(j.get("id") or "")
+        out.append(Job(
+            job_id=f"bamboohr:{slug}:{jid}",
+            ats="bamboohr",
+            company=company,
+            title=(j.get("jobOpeningName") or j.get("title") or "").strip(),
+            location=loc_str.strip(),
+            url=f"https://{slug}.bamboohr.com/careers/{jid}",
+            description=strip_html(j.get("description") or j.get("jobDescription")),
+            posted_at=j.get("postedDate") or j.get("date"),
+            salary=j.get("employmentType"),
+        ))
+    return out
+
+
+def parse_workday(slug: str, company: str, body: Any) -> list[Job]:
+    out = []
+    items = (body or {}).get("jobPostings") or []
+    for j in items:
+        ext_path = j.get("externalPath") or ""
+        raw_id = ext_path.split("/")[-1] if ext_path else str(j.get("bulletFields", [""])[0])
+        jid = raw_id.replace("_", "-") or "job"
+        url = f"https://{slug}.wd1.myworkdayjobs.com{ext_path}" if ext_path.startswith("/") else ext_path
+        out.append(Job(
+            job_id=f"workday:{slug}:{jid}",
+            ats="workday",
+            company=company,
+            title=(j.get("title") or "").strip(),
+            location=(j.get("locationsText") or "").strip(),
+            url=url,
+            description=strip_html(j.get("bulletFields", [""])[0] if isinstance(j.get("bulletFields"), list) else ""),
+            posted_at=j.get("postedOn"),
+        ))
+    return out
+
+
 ENDPOINTS = {
-    "greenhouse": ("https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true", parse_greenhouse),
-    "lever":      ("https://api.lever.co/v0/postings/{slug}?mode=json", parse_lever),
-    "ashby":      ("https://api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=true", parse_ashby),
+    "greenhouse":      ("https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true", parse_greenhouse, "GET", None),
+    "lever":           ("https://api.lever.co/v0/postings/{slug}?mode=json", parse_lever, "GET", None),
+    "ashby":           ("https://api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=true", parse_ashby, "GET", None),
+    "workable":        ("https://apply.workable.com/api/v1/widget/accounts/{slug}", parse_workable, "GET", None),
+    "smartrecruiters": ("https://api.smartrecruiters.com/v1/companies/{slug}/postings", parse_smartrecruiters, "GET", None),
+    "bamboohr":        ("https://{slug}.bamboohr.com/careers/list", parse_bamboohr, "GET", None),
+    "workday":         ("https://{slug}.wd1.myworkdayjobs.com/wday/cxs/{slug}/jobs", parse_workday, "POST", lambda: {"appliedFacets": {}, "limit": 50, "offset": 0}),
 }
 
 
@@ -135,10 +249,18 @@ def fetch_board(ats: str, slug: str, company: str | None = None,
     """Hit one company's public board. Returns [] on any failure (never raises)."""
     if ats not in ENDPOINTS:
         raise ValueError(f"unknown ATS: {ats}")
-    url_tpl, parser = ENDPOINTS[ats]
+    entry = ENDPOINTS[ats]
+    url_tpl, parser = entry[0], entry[1]
+    method = entry[2] if len(entry) > 2 else "GET"
+    payload_fn = entry[3] if len(entry) > 3 else None
+
     sess = session or requests
     try:
-        r = sess.get(url_tpl.format(slug=slug), headers=UA, timeout=TIMEOUT)
+        if method == "POST":
+            payload = payload_fn() if payload_fn else {}
+            r = sess.post(url_tpl.format(slug=slug), json=payload, headers=UA, timeout=TIMEOUT)
+        else:
+            r = sess.get(url_tpl.format(slug=slug), headers=UA, timeout=TIMEOUT)
         if r.status_code != 200:
             print(f"  ! {ats}/{slug} -> HTTP {r.status_code}")
             return []
@@ -148,13 +270,23 @@ def fetch_board(ats: str, slug: str, company: str | None = None,
         return []
 
 
-def fetch_all(companies: Iterable[dict], sleep: float = 0.25) -> list[Job]:
+def fetch_all(companies: Iterable[dict], sleep: float = 0.0, max_workers: int = 10) -> list[Job]:
     jobs: list[Job] = []
-    session = requests.Session()
-    for c in companies:
-        got = fetch_board(c["ats"], c["slug"], c.get("name"), session=session)
-        if got:
-            print(f"  {c.get('name') or c['slug']:<28} {len(got):>4} jobs  ({c['ats']})")
-        jobs.extend(got)
-        time.sleep(sleep)
+    company_list = list(companies)
+    if not company_list:
+        return jobs
+
+    def _worker(c: dict) -> tuple[dict, list[Job]]:
+        sess = requests.Session()
+        got = fetch_board(c["ats"], c["slug"], c.get("name"), session=sess)
+        return c, got
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_worker, c) for c in company_list]
+        for future in as_completed(futures):
+            c, got = future.result()
+            if got:
+                print(f"  {c.get('name') or c['slug']:<28} {len(got):>4} jobs  ({c['ats']})")
+            jobs.extend(got)
     return jobs
+

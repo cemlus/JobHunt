@@ -18,7 +18,7 @@ from typing import Any
 
 import requests
 
-TIMEOUT = 120
+TIMEOUT = 300
 
 
 class LLMError(RuntimeError):

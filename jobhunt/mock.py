@@ -14,7 +14,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from .fetch import parse_greenhouse, parse_lever, parse_ashby, Job
+from .fetch import (
+    parse_greenhouse, parse_lever, parse_ashby,
+    parse_workable, parse_smartrecruiters, parse_bamboohr, parse_workday, Job
+)
 
 
 def _ago(days: int) -> datetime:
@@ -165,6 +168,47 @@ ASHBY = {
     ]},
 }
 
+WORKABLE = {
+    "cloudscale": {"jobs": [
+        {"shortcode": "CS-101", "title": "Staff Infrastructure Engineer",
+         "location": {"city": "Bengaluru", "country": "India", "telecommuting": True},
+         "url": "https://apply.workable.com/cloudscale/j/CS-101/",
+         "description": "<p>Kubernetes, Go, Terraform distributed infrastructure.</p>",
+         "published": _ashby(1)[:10], "type": "full_time"}
+    ]}
+}
+
+SMARTRECRUITERS = {
+    "datapulse": {"content": [
+        {"id": "sr-201", "name": "Frontend Developer, Design Systems",
+         "location": {"city": "Bangalore", "country": "India", "remote": True},
+         "typeOfEmployment": {"label": "Full-time"},
+         "releasedDate": _ashby(1),
+         "description": "React and TypeScript."}
+    ]}
+}
+
+BAMBOOHR = {
+    "fintechx": {"result": [
+        {"id": "bb-301", "jobOpeningName": "Account Executive",
+         "location": {"city": "Bengaluru", "state": "KA"},
+         "locationType": "remote", "employmentType": "Full-time",
+         "postedDate": _ashby(1)[:10],
+         "description": "<p>Enterprise sales.</p>"}
+    ]}
+}
+
+WORKDAY = {
+    "globalcorp": {"jobPostings": [
+        {"title": "Engineering Manager, Infrastructure",
+         "externalPath": "/job/Bengaluru-India/Engineering-Manager_WD-401",
+         "locationsText": "Bengaluru, India",
+         "postedOn": _ashby(1)[:10],
+         "bulletFields": ["People management."]}
+    ]}
+}
+
+
 
 def fetch_all_mock(companies=None) -> list[Job]:
     jobs: list[Job] = []
@@ -174,5 +218,17 @@ def fetch_all_mock(companies=None) -> list[Job]:
         jobs += parse_lever(slug, slug.title(), body)
     for slug, body in ASHBY.items():
         jobs += parse_ashby(slug, slug.title(), body)
-    print(f"  [mock] {len(jobs)} postings from {len(GREENHOUSE) + len(LEVER) + len(ASHBY)} boards")
+    for slug, body in WORKABLE.items():
+        jobs += parse_workable(slug, slug.title(), body)
+    for slug, body in SMARTRECRUITERS.items():
+        jobs += parse_smartrecruiters(slug, slug.title(), body)
+    for slug, body in BAMBOOHR.items():
+        jobs += parse_bamboohr(slug, slug.title(), body)
+    for slug, body in WORKDAY.items():
+        jobs += parse_workday(slug, slug.title(), body)
+
+    boards_count = (len(GREENHOUSE) + len(LEVER) + len(ASHBY) +
+                    len(WORKABLE) + len(SMARTRECRUITERS) + len(BAMBOOHR) + len(WORKDAY))
+    print(f"  [mock] {len(jobs)} postings from {boards_count} boards")
     return jobs
+
