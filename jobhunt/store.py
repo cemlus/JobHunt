@@ -36,14 +36,17 @@ class Store:
                 "emailed": emailed,
                 "applied": False,
                 "applied_on": None,
+                "status": "tracked",  # tracked, applied, rejected, approved
             })
         self.save()
 
-    def mark_applied(self, job_id: str) -> bool:
+    def update_status(self, job_id: str, status: str) -> bool:
         if job_id not in self.data:
             return False
-        self.data[job_id]["applied"] = True
-        self.data[job_id]["applied_on"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.data[job_id]["status"] = status
+        if status == "applied":
+            self.data[job_id]["applied"] = True
+            self.data[job_id]["applied_on"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.save()
         return True
 
@@ -51,14 +54,14 @@ class Store:
         return {
             "tracked": len(self.data),
             "emailed": sum(1 for v in self.data.values() if v.get("emailed")),
-            "applied": sum(1 for v in self.data.values() if v.get("applied")),
+            "applied": sum(1 for v in self.data.values() if v.get("applied") or v.get("status") in ("applied", "rejected", "approved")),
         }
 
     def export_csv(self, path: str | Path = "out/tracker.csv") -> Path:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         cols = ["first_seen", "company", "title", "location", "score",
-                "reason", "applied", "applied_on", "url"]
+                "reason", "status", "applied", "applied_on", "url"]
         with path.open("w", newline="", encoding="utf-8") as fh:
             w = csv.DictWriter(fh, fieldnames=["job_id"] + cols, extrasaction="ignore")
             w.writeheader()
@@ -68,4 +71,4 @@ class Store:
         return path
 
     def save(self) -> None:
-        self.path.write_text(json.dumps(self.data, indent=2, ensure_ascii=False))
+        self.path.write_text(json.dumps(self.data, indent=2, ensure_ascii=False), encoding="utf-8")

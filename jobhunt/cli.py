@@ -203,7 +203,7 @@ def cmd_run(args) -> int:
 # ------------------------------------------------------------------- misc --
 def cmd_applied(args) -> int:
     store = Store(_cfg(args.config).get("seen_file", "seen.json"))
-    ok = store.mark_applied(args.job_id)
+    ok = store.update_status(args.job_id, "applied")
     print("marked applied" if ok else f"unknown job_id: {args.job_id}")
     return 0 if ok else 1
 
@@ -213,6 +213,12 @@ def cmd_stats(args) -> int:
     store = Store(cfg.get("seen_file", "seen.json"))
     print(json.dumps(store.stats(), indent=2))
     print(f"csv: {store.export_csv(cfg.get('tracker_csv', 'out/tracker.csv'))}")
+    return 0
+
+
+def cmd_ui(args) -> int:
+    from . import ui
+    ui.serve()
     return 0
 
 
@@ -245,6 +251,9 @@ def main(argv=None) -> int:
 
     ss = sub.add_parser("stats", help="tracker summary + CSV export")
     ss.set_defaults(func=cmd_stats)
+
+    su = sub.add_parser("ui", help="launch the local web dashboard")
+    su.set_defaults(func=cmd_ui)
 
     args = p.parse_args(argv)
     return args.func(args)
