@@ -34,6 +34,7 @@ def prefilter(jobs: list[Job], cfg: dict) -> list[Job]:
     inc = cfg.get("include_titles") or [r"."]
     exc = cfg.get("exclude_titles") or []
     locs = [l.lower() for l in (cfg.get("locations") or [])]
+    exc_locs = cfg.get("exclude_locations") or []
     allow_remote = bool(cfg.get("allow_remote", True))
     max_age = cfg.get("max_age_days")
     cutoff = datetime.now(timezone.utc) - timedelta(days=max_age) if max_age else None
@@ -44,10 +45,24 @@ def prefilter(jobs: list[Job], cfg: dict) -> list[Job]:
             stats["title"] += 1
             continue
 
-        if locs:
-            hay = f"{j.location} {j.title}".lower()
-            is_remote = allow_remote and any(h in hay for h in REMOTE_HINTS)
-            if not is_remote and not any(l in hay for l in locs):
+        if locs or exc_locs:
+            all_loc_items = [j.location] + (j.locations or [])
+            all_loc_text = " ".join([l for l in all_loc_items if l] + [j.title]).lower()
+
+            # 1. Explicit location exclusion rule (e.g. US Only, LATAM Only)
+            if exc_locs and _any_match(exc_locs, all_loc_text):
+                stats["location"] += 1
+                continue
+
+            # 2. Location match rule (check target locs across primary location, locations list, or title)
+            loc_matched = any(
+                any(target_loc in loc_item.lower() for target_loc in locs)
+                for loc_item in all_loc_items if loc_item
+            )
+
+            is_remote = allow_remote and (j.is_remote or any(h in all_loc_text for h in REMOTE_HINTS))
+
+            if not loc_matched and not is_remote:
                 stats["location"] += 1
                 continue
 
@@ -62,3 +77,4 @@ def prefilter(jobs: list[Job], cfg: dict) -> list[Job]:
     print(f"  prefilter: {len(jobs)} -> {len(kept)} "
           f"(dropped title={stats['title']} location={stats['location']} stale={stats['age']})")
     return kept
+

@@ -41,6 +41,9 @@ class Job:
     description: str
     posted_at: str | None = None
     salary: str | None = None
+    locations: list[str] = field(default_factory=list)
+    is_remote: bool = False
+    workplace_type: str | None = None
     # filled in later by the pipeline
     score: float | None = None
     reason: str | None = None
@@ -55,16 +58,32 @@ class Job:
 # Keeping parse separate from HTTP is what makes offline testing possible.
 # --------------------------------------------------------------------------
 
+def _extract_remote_flag(texts: list[str]) -> bool:
+    hay = " ".join(texts).lower()
+    return any(h in hay for h in ("remote", "anywhere", "work from home", "wfh", "telecommuting", "distributed"))
+
+
 def parse_greenhouse(slug: str, company: str, body: Any) -> list[Job]:
     out = []
     for j in (body or {}).get("jobs", []):
-        loc = (j.get("location") or {}).get("name") or ""
+        loc_main = (j.get("location") or {}).get("name") or ""
+        offices = [o.get("name") for o in (j.get("offices") or []) if isinstance(o, dict) and o.get("name")]
+        secondaries = [s.get("name") for s in (j.get("secondary_locations") or []) if isinstance(s, dict) and s.get("name")]
+        
+        all_locs = [loc for loc in ([loc_main] + offices + secondaries) if loc]
+        unique_locs = list(dict.fromkeys(all_locs))
+        primary_loc = loc_main or (unique_locs[0] if unique_locs else "")
+        is_remote = _extract_remote_flag(unique_locs + [(j.get("title") or "")])
+
         out.append(Job(
             job_id=f"greenhouse:{slug}:{j.get('id')}",
             ats="greenhouse",
             company=company,
             title=(j.get("title") or "").strip(),
-            location=loc.strip(),
+            location=primary_loc.strip(),
+            locations=unique_locs,
+            is_remote=is_remote,
+            workplace_type="remote" if is_remote else None,
             url=j.get("absolute_url") or "",
             description=strip_html(j.get("content")),
             posted_at=j.get("updated_at") or j.get("first_published"),
@@ -76,6 +95,20 @@ def parse_lever(slug: str, company: str, body: Any) -> list[Job]:
     out = []
     for j in (body or []):
         cats = j.get("categories") or {}
+        primary_loc = (cats.get("location") or "").strip()
+        all_locs = [primary_loc]
+        raw_all = cats.get("allLocations") or []
+        if isinstance(raw_all, list):
+            for item in raw_all:
+                if isinstance(item, str) and item:
+                    all_locs.append(item.strip())
+                elif isinstance(item, dict) and item.get("name"):
+                    all_locs.append(item["name"].strip())
+        
+        unique_locs = list(dict.fromkeys([l for l in all_locs if l]))
+        workplace_type = (j.get("workplaceType") or "").lower() or None
+        is_remote = workplace_type == "remote" or _extract_remote_flag(unique_locs + [(j.get("text") or "")])
+
         # Lever splits the JD across descriptionPlain + a `lists` array.
         chunks = [j.get("descriptionPlain") or strip_html(j.get("description"))]
         for lst in (j.get("lists") or []):
@@ -86,12 +119,16 @@ def parse_lever(slug: str, company: str, body: Any) -> list[Job]:
         posted = None
         if isinstance(ts, (int, float)):
             posted = time.strftime("%Y-%m-%d", time.gmtime(ts / 1000))
+
         out.append(Job(
             job_id=f"lever:{slug}:{j.get('id')}",
             ats="lever",
             company=company,
             title=(j.get("text") or "").strip(),
-            location=(cats.get("location") or "").strip(),
+            location=primary_loc,
+            locations=unique_locs,
+            is_remote=is_remote,
+            workplace_type=workplace_type or ("remote" if is_remote else None),
             url=j.get("hostedUrl") or j.get("applyUrl") or "",
             description="\n\n".join(c for c in chunks if c).strip(),
             posted_at=posted,
@@ -110,12 +147,21 @@ def parse_ashby(slug: str, company: str, body: Any) -> list[Job]:
         summary = comp.get("compensationTierSummary") or comp.get("summaryComponents")
         if isinstance(summary, str):
             salary = summary
+            
+        primary_loc = (j.get("location") or "").strip()
+        secondaries = [s.get("location") for s in (j.get("secondaryLocations") or []) if isinstance(s, dict) and s.get("location")]
+        all_locs = list(dict.fromkeys([l for l in ([primary_loc] + secondaries) if l]))
+        is_remote = bool(j.get("isRemote")) or _extract_remote_flag(all_locs + [(j.get("title") or "")])
+
         out.append(Job(
             job_id=f"ashby:{slug}:{j.get('id')}",
             ats="ashby",
             company=company,
             title=(j.get("title") or "").strip(),
-            location=(j.get("location") or "").strip(),
+            location=primary_loc,
+            locations=all_locs,
+            is_remote=is_remote,
+            workplace_type="remote" if is_remote else None,
             url=j.get("jobUrl") or j.get("applyUrl") or "",
             description=(j.get("descriptionPlain") or strip_html(j.get("descriptionHtml")) or "").strip(),
             posted_at=j.get("publishedAt"),
@@ -133,18 +179,24 @@ def parse_workable(slug: str, company: str, body: Any) -> list[Job]:
         loc_obj = j.get("location") or {}
         city = loc_obj.get("city") or loc_obj.get("region") or ""
         country = loc_obj.get("country") or ""
-        is_remote = bool(loc_obj.get("telecommuting") or j.get("telecommuting"))
+        is_telecommuting = bool(loc_obj.get("telecommuting") or j.get("telecommuting"))
         parts = [p for p in (city, country) if p]
-        if is_remote and "remote" not in " ".join(parts).lower():
+        if is_telecommuting and "remote" not in " ".join(parts).lower():
             parts.append("Remote")
         loc_str = ", ".join(parts)
         shortcode = j.get("shortcode") or j.get("code") or str(j.get("id"))
+        workplace_type = j.get("workplace_type") or ("remote" if is_telecommuting else None)
+        is_remote = is_telecommuting or workplace_type == "remote" or _extract_remote_flag([loc_str, j.get("title") or ""])
+
         out.append(Job(
             job_id=f"workable:{slug}:{shortcode}",
             ats="workable",
             company=company,
             title=(j.get("title") or "").strip(),
             location=loc_str.strip(),
+            locations=[loc_str.strip()] if loc_str.strip() else [],
+            is_remote=is_remote,
+            workplace_type=workplace_type,
             url=j.get("url") or f"https://apply.workable.com/j/{shortcode}",
             description=strip_html(j.get("description") or j.get("summary")),
             posted_at=j.get("published") or j.get("published_on") or j.get("created_at"),
@@ -162,19 +214,24 @@ def parse_smartrecruiters(slug: str, company: str, body: Any) -> list[Job]:
         loc_obj = j.get("location") or {}
         city = loc_obj.get("city") or loc_obj.get("region") or ""
         country = loc_obj.get("country") or ""
-        is_remote = bool(loc_obj.get("remote"))
+        is_remote_flag = bool(loc_obj.get("remote"))
         parts = [p for p in (city, country) if p]
-        if is_remote and "remote" not in " ".join(parts).lower():
+        if is_remote_flag and "remote" not in " ".join(parts).lower():
             parts.append("Remote")
         loc_str = ", ".join(parts)
         jid = str(j.get("id") or "")
         emp_type = (j.get("typeOfEmployment") or {}).get("label") if isinstance(j.get("typeOfEmployment"), dict) else j.get("typeOfEmployment")
+        is_remote = is_remote_flag or _extract_remote_flag([loc_str, j.get("name") or ""])
+
         out.append(Job(
             job_id=f"smartrecruiters:{slug}:{jid}",
             ats="smartrecruiters",
             company=company,
             title=(j.get("name") or j.get("title") or "").strip(),
             location=loc_str.strip(),
+            locations=[loc_str.strip()] if loc_str.strip() else [],
+            is_remote=is_remote,
+            workplace_type="remote" if is_remote else None,
             url=f"https://jobs.smartrecruiters.com/{slug}/{jid}",
             description=strip_html(j.get("jobAd", {}).get("sections", {}).get("jobDescription", {}).get("text") or j.get("description")),
             posted_at=j.get("releasedDate") or j.get("createdOn"),
@@ -195,15 +252,21 @@ def parse_bamboohr(slug: str, company: str, body: Any) -> list[Job]:
             country = loc.get("country") or ""
             parts = [p for p in (city, country) if p]
             loc_str = ", ".join(parts)
-        if j.get("locationType") == "remote" and "remote" not in loc_str.lower():
+        is_remote_type = j.get("locationType") == "remote"
+        if is_remote_type and "remote" not in loc_str.lower():
             loc_str = f"{loc_str}, Remote" if loc_str else "Remote"
         jid = str(j.get("id") or "")
+        is_remote = is_remote_type or _extract_remote_flag([loc_str, j.get("jobOpeningName") or ""])
+
         out.append(Job(
             job_id=f"bamboohr:{slug}:{jid}",
             ats="bamboohr",
             company=company,
             title=(j.get("jobOpeningName") or j.get("title") or "").strip(),
             location=loc_str.strip(),
+            locations=[loc_str.strip()] if loc_str.strip() else [],
+            is_remote=is_remote,
+            workplace_type="remote" if is_remote else None,
             url=f"https://{slug}.bamboohr.com/careers/{jid}",
             description=strip_html(j.get("description") or j.get("jobDescription")),
             posted_at=j.get("postedDate") or j.get("date"),
@@ -220,17 +283,25 @@ def parse_workday(slug: str, company: str, body: Any) -> list[Job]:
         raw_id = ext_path.split("/")[-1] if ext_path else str(j.get("bulletFields", [""])[0])
         jid = raw_id.replace("_", "-") or "job"
         url = f"https://{slug}.wd1.myworkdayjobs.com{ext_path}" if ext_path.startswith("/") else ext_path
+        loc_raw = (j.get("locationsText") or "").strip()
+        loc_parts = [p.strip() for p in loc_raw.replace(";", ",").split(",") if p.strip()]
+        is_remote = _extract_remote_flag([loc_raw, j.get("title") or ""])
+
         out.append(Job(
             job_id=f"workday:{slug}:{jid}",
             ats="workday",
             company=company,
             title=(j.get("title") or "").strip(),
-            location=(j.get("locationsText") or "").strip(),
+            location=loc_raw,
+            locations=loc_parts,
+            is_remote=is_remote,
+            workplace_type="remote" if is_remote else None,
             url=url,
             description=strip_html(j.get("bulletFields", [""])[0] if isinstance(j.get("bulletFields"), list) else ""),
             posted_at=j.get("postedOn"),
         ))
     return out
+
 
 
 ENDPOINTS = {

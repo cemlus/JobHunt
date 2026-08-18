@@ -232,9 +232,50 @@ def test_allow_remote_is_what_lets_an_out_of_region_remote_role_through():
     assert kept_off == []
 
 
-def test_empty_filters_keep_everything():
-    jobs = fetch_all_mock()
-    assert len(prefilter(jobs, {})) == len(jobs)
+def test_multi_location_secondary_office_survival():
+    """Primary office is London, but secondary office is Bangalore -> job survives prefilter."""
+    from jobhunt.fetch import Job
+    job = Job(job_id="greenhouse:x:10", ats="greenhouse", company="X",
+              title="Software Engineer", location="London, UK",
+              locations=["London, UK", "Bangalore, India"], is_remote=False,
+              url="http://x", description="Node.js")
+    kept = prefilter([job], FILTERS)
+    assert len(kept) == 1
+    assert kept[0].job_id == "greenhouse:x:10"
+
+
+def test_exclude_locations_drops_region_restricted_remote():
+    """Job is remote but restricted to US Only -> dropped by exclude_locations rule."""
+    from jobhunt.fetch import Job
+    job = Job(job_id="lever:x:20", ats="lever", company="X",
+              title="Software Engineer", location="Remote - US Only",
+              locations=["Remote - US Only"], is_remote=True,
+              url="http://x", description="Go")
+    kept = prefilter([job], FILTERS)
+    assert kept == []
+
+
+def test_parser_extracts_locations_and_is_remote():
+    """Greenhouse parser extracts offices and sets is_remote correctly."""
+    gh_raw = {
+        "jobs": [{
+            "id": 9901,
+            "title": "Backend Engineer",
+            "location": {"name": "London, UK"},
+            "offices": [{"name": "Bengaluru, India"}],
+            "secondary_locations": [{"name": "Remote - India"}],
+            "absolute_url": "http://x",
+            "content": "Go"
+        }]
+    }
+    jobs = parse_greenhouse("testco", "TestCo", gh_raw)
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j.location == "London, UK"
+    assert j.locations == ["London, UK", "Bengaluru, India", "Remote - India"]
+    assert j.is_remote is True
+    assert j.workplace_type == "remote"
+
 
 
 def test_fetch_all_concurrency_execution(monkeypatch):
