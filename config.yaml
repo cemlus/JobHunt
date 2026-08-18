@@ -84,6 +84,10 @@ filters:
     - chennai
     - india
 
+  exclude_locations:
+    - '\b(us|usa|united\s+states)\s+only\b'
+    - '\b(americas|latam|canada|emea|europe)\s+only\b'
+
   allow_remote: true
   max_age_days: 30
 
